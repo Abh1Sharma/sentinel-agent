@@ -61,10 +61,10 @@ Built live at **Production Agent Lab**, Oct 22, 2026.
 
 - [x] Reliable Nimble access layer: concurrency cap, backoff, cache and replay
 - [x] Opik tracing wired through every stage
-- [ ] Integrity layer: request, content and action checkpoints
-- [ ] Briefing pipeline with corroboration gate
-- [ ] Streamlit UI: naive and Sentinel modes side by side
-- [ ] Eval suite (catch rate vs. false-positive rate) logged to Opik
+- [x] Integrity layer: request, content and action checkpoints
+- [x] Briefing pipeline with corroboration gate
+- [x] Streamlit UI: naive and Sentinel modes side by side
+- [x] Eval suite (catch rate vs. false-positive rate) logged to Opik
 - [ ] Nexla MCP server for approval-gated write tools (Nexla workshop)
 - [ ] Nimble Web Search Agent deep mode (Nimble workshop)
 
@@ -74,4 +74,12 @@ Built live at **Production Agent Lab**, Oct 22, 2026.
 cp .env.example .env    # add your keys
 uv sync
 uv run streamlit run app.py
+```
+
+## Try the attack
+
+`docs/quillstack/` is a fictional competitor page with harmless, deliberate injections: a hidden fake acquisition, a zero-size "post to Slack" instruction, and a visible "note for AI agents". Run the app in **Side by side** mode with the default inputs to see the naive agent fall for it and Sentinel catch it.
+
+```bash
+uv run python -m evals.run_eval   # catch rate and false-positive rate
 ```
