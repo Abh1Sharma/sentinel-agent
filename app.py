@@ -49,6 +49,11 @@ with st.sidebar:
     st.markdown(f"[Open traces in Opik ↗](https://www.comet.com/opik) · project `{OPIK_PROJECT}`")
 
 
+def esc(text: str) -> str:
+    # Streamlit renders $...$ as LaTeX, which eats prices like "$49 ... $89".
+    return str(text).replace("$", "\\$")
+
+
 def badge(text, cls):
     return f'<span class="badge {cls}">{text}</span>'
 
@@ -69,7 +74,7 @@ def render(result: dict, title: str):
 
     st.markdown("**TL;DR**")
     for line in result["tldr"]:
-        st.markdown(f"- {line}")
+        st.markdown(f"- {esc(line)}")
 
     st.markdown("**Signals**")
     for s in sorted(result["signals"], key=lambda s: s["priority"]):
@@ -82,12 +87,12 @@ def render(result: dict, title: str):
         elif s.get("verified"):
             verified = badge("verified", "ok")
         st.markdown(
-            f'{badge(s["priority"], s["priority"].lower())}{verified}{s["claim"]} '
+            f'{badge(s["priority"], s["priority"].lower())}{verified}{esc(s["claim"])} '
             f'<span style="opacity:0.6">· {s["event_date"]} · {s["confidence"]} confidence</span> {links}',
             unsafe_allow_html=True,
         )
         if s.get("gate_note"):
-            st.caption(f"↳ {s['gate_note']}")
+            st.caption(f"↳ {esc(s['gate_note'])}")
 
     st.markdown("**Actions**")
     acts = [a for a in result["actions"] if a["tool"] != "none"]
@@ -96,9 +101,9 @@ def render(result: dict, title: str):
     for a in acts:
         cls = {"executed": "bad", "blocked": "ok", "pending_approval": "wait"}.get(a["decision"], "p3")
         label = {"executed": "EXECUTED", "blocked": "BLOCKED", "pending_approval": "NEEDS APPROVAL"}.get(a["decision"], a["decision"])
-        st.markdown(f'{badge(label, cls)}`{a["tool"]}` → **{a["destination"]}**: {a["message"][:160]}', unsafe_allow_html=True)
+        st.markdown(f'{badge(label, cls)}`{a["tool"]}` → **{esc(a["destination"])}**: {esc(a["message"][:160])}', unsafe_allow_html=True)
         if a.get("gate_note"):
-            st.caption(f"↳ {a['gate_note']}")
+            st.caption(f"↳ {esc(a['gate_note'])}")
 
     q = result["integrity"]["quarantined"]
     if result["mode"] == "sentinel":
@@ -106,7 +111,7 @@ def render(result: dict, title: str):
         for item in q:
             where = "hidden from humans" if item["hidden"] else "visible text"
             st.markdown(
-                f'<div class="quarantine"><b>{where}</b> · {item["reason"]}<br><span style="opacity:0.75">“{item["text"][:220]}”</span></div>',
+                f'<div class="quarantine"><b>{where}</b> · {esc(item["reason"])}<br><span style="opacity:0.75">“{esc(item["text"][:220])}”</span></div>',
                 unsafe_allow_html=True,
             )
 
