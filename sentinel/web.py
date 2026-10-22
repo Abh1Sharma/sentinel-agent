@@ -68,7 +68,7 @@ def _cached_call(kind: str, params: dict, fn):
 @track(name="nimble.search", type="tool")
 def search(query: str, **options) -> list[dict]:
     """Live web search. Defaults to lite depth because it is the fast path."""
-    params = {"query": query, "search_depth": "lite", "max_results": 8, **options}
+    params = {"query": query, "search_depth": "lite", "max_results": 6, **options}
 
     def call():
         resp = nimble_client().search(**params)

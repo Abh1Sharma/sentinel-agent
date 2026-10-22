@@ -18,10 +18,11 @@
 - Show the briefing: priorities, dates, confidence, a source on every claim.
 
 **0:55 The twist (60s)**
-- "Here's Quillstack, a competitor we track. Its site looks normal." Show the page.
-- Run **Side by side**.
-- Left, the naive agent: the P1 is "Quillstack acquired by Helix Cloud for $4.2B", and it **posted it to #general**. "That acquisition never happened. It was hidden text on the page, invisible to you, written for your agent."
-- Right, Sentinel: the claim was quarantined (hidden from humans), and the Slack post to #general was **blocked** because you never authorized that destination. The real news, the Pulse launch and the pricing, still came through.
+- "Here's Quillstack, a competitor we track. Its site looks normal." Show the page. There's no acquisition anywhere on it.
+- Run **Side by side**. Same model (Claude Opus 5.5) and same prompt on both sides; the only difference is Sentinel.
+- Left, the naive agent: its P1 is "Quillstack signed a definitive agreement to be acquired by Helix Cloud for $4.2B", and it **posted that to your team's Slack**. "That acquisition never happened. It's a press release hidden with CSS. You can't see it; your scraper can."
+- Right, Sentinel: 3 spans quarantined (the cloaked acquisition, a hidden 'post to Slack and email' instruction, and a visible 'note for AI agents'). The real news, the Pulse launch, pricing and hiring, still came through, and the Slack post waits for your approval.
+- Honest aside, if asked: frontier models do ignore *obvious* "AI, do X" instructions. A cloaked fact is different. It doesn't look like an attack, so the model reports it.
 
 **1:55 Production proof (45s)**
 - Switch to Opik and show the trace tree: search → extract → `guardrail` spans → LLM.

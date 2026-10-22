@@ -96,21 +96,25 @@ def run(
     timings: dict[str, float] = {}
     out: dict = {"company": company, "mode": mode, "integrity": {"quarantined": [], "request": None}}
 
+    last = [t0]
+
     def lap(name):
-        timings[name] = round(time.perf_counter() - t0 - sum(timings.values()), 2)
+        now = time.perf_counter()
+        timings[name] = round(now - last[0], 2)
+        last[0] = now
 
-    if sentinel:
-        on_step("Request checkpoint")
-        verdict = guard.check_request(company)
-        out["integrity"]["request"] = verdict.model_dump()
-        lap("request_check")
-        if not verdict.allowed:
-            out["blocked"] = verdict.reason
-            return out
-
-    on_step(f"Searching the live web with Nimble ({len(QUERIES)} queries in parallel)")
-    with ThreadPoolExecutor(max_workers=len(QUERIES)) as pool:
+    on_step(f"Searching the live web with Nimble ({len(QUERIES)} queries in parallel)" + (" while checking the request" if sentinel else ""))
+    with ThreadPoolExecutor(max_workers=len(QUERIES) + 1) as pool:
+        # The request check runs alongside the searches; searching is read-only,
+        # so a denied request just discards the results.
+        verdict_f = pool.submit(guard.check_request, company) if sentinel else None
         futures = {kind: pool.submit(web.search, q.format(c=company), **opts) for kind, q, opts in QUERIES}
+        if verdict_f:
+            verdict = verdict_f.result()
+            out["integrity"]["request"] = verdict.model_dump()
+            if not verdict.allowed:
+                out["blocked"] = verdict.reason
+                return out
         results = {}
         for kind, f in futures.items():
             try:
@@ -118,13 +122,17 @@ def run(
             except Exception as e:  # one failed query must not sink the briefing
                 results[kind] = []
                 out.setdefault("degraded", []).append(f"search '{kind}' failed: {e}")
-    lap("search")
+    lap("request_and_search" if sentinel else "search")
 
+    # Cheap relevance filter: a hit that never names the company is noise that
+    # costs tokens and latency in the briefing call.
+    name = company.lower()
     sources: list[dict] = []
     seen: set[str] = set()
     for kind, hits in results.items():
         for h in hits:
-            if h["url"] in seen:
+            haystack = f'{h["title"]} {h["description"]} {h["url"]}'.lower()
+            if h["url"] in seen or name not in haystack:
                 continue
             seen.add(h["url"])
             sources.append({"url": h["url"], "title": h["title"], "text": f'{h["description"]}\n{h.get("content") or ""}'.strip(), "kind": kind})
@@ -183,9 +191,10 @@ def run(
     brief = resp.parsed_output.model_dump()
     signals = brief["signals"]
     actions = brief["proposed_actions"]
+    source_index = {str(i): {"url": s["url"], "title": s["title"]} for i, s in numbered.items()}
     if sentinel:
         on_step("Verifying P1 claims and gating actions")
-        signals = guard.corroborate(signals, numbered)
+        signals = guard.corroborate(signals, source_index)
         actions = guard.gate_actions(actions, authorized)
     else:
         for a in actions:
@@ -196,7 +205,7 @@ def run(
         tldr=brief["tldr"],
         signals=signals,
         actions=actions,
-        sources={i: {"url": s["url"], "title": s["title"]} for i, s in numbered.items()},
+        sources=source_index,
         timings=timings,
         total_s=round(time.perf_counter() - t0, 2),
         brief_cost_usd=round(_cost(BRIEF_MODEL, resp.usage), 4),

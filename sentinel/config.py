@@ -50,6 +50,7 @@ def configure_opik():
             use_local=False,
             force=True,
             automatic_approvals=True,
+            project_name=OPIK_PROJECT,
         )
     else:
         opik.set_tracing_active(False)

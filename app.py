@@ -74,7 +74,7 @@ def render(result: dict, title: str):
     st.markdown("**Signals**")
     for s in sorted(result["signals"], key=lambda s: s["priority"]):
         links = " ".join(
-            f'[{i}]({result["sources"][i]["url"]})' for i in s["source_ids"] if i in result["sources"]
+            f'[{i}]({result["sources"][str(i)]["url"]})' for i in s["source_ids"] if str(i) in result["sources"]
         )
         verified = ""
         if s.get("verified") is False:
