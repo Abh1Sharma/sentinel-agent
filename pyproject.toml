@@ -5,8 +5,14 @@ description = "A competitive-intel agent the web can't hijack: Nimble + Nexla + 
 requires-python = ">=3.13"
 dependencies = [
     "anthropic>=2.1.0",
+    "fastapi>=0.161.1",
     "nimble-python>=1.6.0",
     "opik>=2.2.117",
     "python-dotenv>=1.2.4",
+    "uvicorn>=0.54.0",
+]
+
+[project.optional-dependencies]
+ui = [
     "streamlit>=1.66.1",
 ]

@@ -16,7 +16,8 @@ OPIK_PROJECT = os.getenv("OPIK_PROJECT_NAME", "sentinel")
 # Replay mode serves every Nimble call from the on-disk cache. Use it on stage
 # when the venue Wi-Fi dies: run everything once at home, then flip this on.
 REPLAY = os.getenv("SENTINEL_REPLAY", "0") == "1"
-CACHE_DIR = ROOT / ".cache"
+# Vercel functions have a read-only filesystem except /tmp.
+CACHE_DIR = Path("/tmp/sentinel-cache") if os.getenv("VERCEL") else ROOT / ".cache"
 
 # Fallback on refusal is a server-side beta on Opus 5.5.
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
@@ -43,7 +44,8 @@ def configure_opik():
     """Point Opik at the cloud workspace if a key is present, else stay local-only."""
     import opik
 
-    if os.getenv("OPIK_API_KEY"):
+    if os.getenv("OPIK_API_KEY") and not os.getenv("VERCEL"):
+        # On Vercel the OPIK_* env vars are enough; configure() would try to write ~/.opik.config.
         opik.configure(
             api_key=os.environ["OPIK_API_KEY"],
             workspace=os.getenv("OPIK_WORKSPACE"),
@@ -52,5 +54,5 @@ def configure_opik():
             automatic_approvals=True,
             project_name=OPIK_PROJECT,
         )
-    else:
+    elif not os.getenv("OPIK_API_KEY"):
         opik.set_tracing_active(False)

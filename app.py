@@ -1,140 +1,107 @@
-"""Stage UI. Runs the naive agent and Sentinel side by side on the same input."""
+"""Web front end (and the Vercel entrypoint). Streams Sentinel's live events
+as NDJSON so the page can show each fetch, flag and verdict as it happens.
 
-from concurrent.futures import ThreadPoolExecutor
+    uv run uvicorn app:app --reload
+"""
 
-import streamlit as st
+import json
+import queue
+import threading
+import time
+from collections import defaultdict, deque
+from pathlib import Path
 
-from sentinel.agent import run
-from sentinel.config import OPIK_PROJECT, REPLAY, configure_opik
+import opik
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 
-st.set_page_config(page_title="Sentinel", page_icon="🛡️", layout="wide")
+import sentinel  # noqa: F401  (loads .env and tracing config first)
+from sentinel.agent import scan_url
+
+ROOT = Path(__file__).resolve().parent
+app = FastAPI(title="Sentinel", docs_url=None, redoc_url=None)
+
+# Public demo with real API keys behind it: a small per-IP budget per instance.
+RATE_LIMIT, RATE_WINDOW_S = 6, 600
+_hits: dict[str, deque] = defaultdict(deque)
+_hits_lock = threading.Lock()
 
 
-@st.cache_resource
-def _setup():
-    configure_opik()
-    return True
+def _allowed(ip: str) -> bool:
+    now = time.time()
+    with _hits_lock:
+        q = _hits[ip]
+        while q and now - q[0] > RATE_WINDOW_S:
+            q.popleft()
+        if len(q) >= RATE_LIMIT:
+            return False
+        q.append(now)
+        return True
 
 
-_setup()
+@app.get("/", response_class=HTMLResponse)
+def index():
+    return (ROOT / "web" / "index.html").read_text()
 
-st.markdown(
-    """
-<style>
-.block-container { padding-top: 1.5rem; }
-.badge { display:inline-block; padding:1px 8px; border-radius:6px; font-size:0.8rem; font-weight:600; margin-right:6px; }
-.p1 { background:#fde2e1; color:#a1160a; } .p2 { background:#fff1d6; color:#8a5300; } .p3 { background:#e8eef7; color:#2d4a73; }
-.ok { background:#dff5e3; color:#1d6b2f; } .bad { background:#fde2e1; color:#a1160a; } .wait { background:#fff1d6; color:#8a5300; }
-.quarantine { border-left:4px solid #d93025; background:rgba(217,48,37,0.06); padding:8px 12px; margin:6px 0; border-radius:4px; font-size:0.9rem; }
-</style>
-""",
-    unsafe_allow_html=True,
-)
 
-st.title("🛡️ Sentinel")
-st.caption("A competitive-intel agent the web can't hijack · Nimble · Nexla · Comet Opik · Claude")
+@app.get("/quillstack", response_class=HTMLResponse)
+def quillstack():
+    """The trap page, so anyone can see it looks normal to a human."""
+    return (ROOT / "docs" / "quillstack" / "index.html").read_text()
 
-with st.sidebar:
-    company = st.text_input("Company to research", "Quillstack")
-    watch = st.text_area("Watchlist pages (one per line)", "fixture:quillstack", height=80)
-    authorized = st.multiselect(
-        "Actions you authorize",
-        ["post_to_slack:#competitive-intel", "send_email:team@yourco.com", "update_crm:accounts"],
-        default=["post_to_slack:#competitive-intel"],
+
+@app.get("/api/radar")
+def radar():
+    return json.loads((ROOT / "data" / "radar_snapshot.json").read_text())
+
+
+@app.get("/api/health")
+def health():
+    return {"ok": True}
+
+
+@app.post("/api/scan")
+async def scan(request: Request):
+    body = await request.json()
+    url = str(body.get("url", "")).strip()
+    if url != "fixture:quillstack" and not (url.startswith(("http://", "https://")) and len(url) < 2000):
+        return JSONResponse({"error": "Enter a full http(s) URL"}, status_code=400)
+    ip = (request.headers.get("x-forwarded-for") or (request.client.host if request.client else "?")).split(",")[0].strip()
+    if not _allowed(ip):
+        return JSONResponse({"error": "Rate limit: 6 scans per 10 minutes. Try again shortly."}, status_code=429)
+
+    events: queue.Queue = queue.Queue()
+    t0 = time.perf_counter()
+
+    def emit(kind: str, **data):
+        events.put({"type": kind, "t": round(time.perf_counter() - t0, 1), **data})
+
+    def work():
+        try:
+            result = scan_url(url, emit=emit, compare=True)
+            result.pop("clean_text", None)
+            events.put({"type": "result", "data": result})
+        except Exception as e:  # surface failures in the console instead of a dead stream
+            events.put({"type": "error", "t": round(time.perf_counter() - t0, 1), "msg": f"{type(e).__name__}: {e}"})
+        finally:
+            events.put(None)
+            opik.flush_tracker()
+
+    threading.Thread(target=work, daemon=True).start()
+
+    def stream():
+        while True:
+            try:
+                item = events.get(timeout=10)
+            except queue.Empty:
+                yield json.dumps({"type": "ping"}) + "\n"  # keeps proxies from closing an idle stream
+                continue
+            if item is None:
+                return
+            yield json.dumps(item, default=str) + "\n"
+
+    return StreamingResponse(
+        stream(),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
-    layout = st.radio("Run", ["Side by side", "Sentinel only", "Naive only"])
-    go = st.button("Run", type="primary", use_container_width=True)
-    if REPLAY:
-        st.info("Replay mode: serving web calls from cache")
-    st.markdown(f"[Open traces in Opik ↗](https://www.comet.com/opik) · project `{OPIK_PROJECT}`")
-
-
-def esc(text: str) -> str:
-    # Streamlit renders $...$ as LaTeX, which eats prices like "$49 ... $89".
-    return str(text).replace("$", "\\$")
-
-
-def badge(text, cls):
-    return f'<span class="badge {cls}">{text}</span>'
-
-
-def render(result: dict, title: str):
-    st.subheader(title)
-    if result.get("blocked"):
-        st.error(f"Request blocked at the request checkpoint: {result['blocked']}")
-        return
-    if result.get("error"):
-        st.error(result["error"])
-        return
-
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Time", f"{result['total_s']}s")
-    m2.metric("Briefing cost", f"${result['brief_cost_usd']:.3f}")
-    m3.metric("Sources", len(result["sources"]))
-
-    st.markdown("**TL;DR**")
-    for line in result["tldr"]:
-        st.markdown(f"- {esc(line)}")
-
-    st.markdown("**Signals**")
-    for s in sorted(result["signals"], key=lambda s: s["priority"]):
-        links = " ".join(
-            f'[{i}]({result["sources"][str(i)]["url"]})' for i in s["source_ids"] if str(i) in result["sources"]
-        )
-        verified = ""
-        if s.get("verified") is False:
-            verified = badge("UNVERIFIED", "bad")
-        elif s.get("verified"):
-            verified = badge("verified", "ok")
-        st.markdown(
-            f'{badge(s["priority"], s["priority"].lower())}{verified}{esc(s["claim"])} '
-            f'<span style="opacity:0.6">· {s["event_date"]} · {s["confidence"]} confidence</span> {links}',
-            unsafe_allow_html=True,
-        )
-        if s.get("gate_note"):
-            st.caption(f"↳ {esc(s['gate_note'])}")
-
-    st.markdown("**Actions**")
-    acts = [a for a in result["actions"] if a["tool"] != "none"]
-    if not acts:
-        st.caption("No actions proposed")
-    for a in acts:
-        cls = {"executed": "bad", "blocked": "ok", "pending_approval": "wait"}.get(a["decision"], "p3")
-        label = {"executed": "EXECUTED", "blocked": "BLOCKED", "pending_approval": "NEEDS APPROVAL"}.get(a["decision"], a["decision"])
-        st.markdown(f'{badge(label, cls)}`{a["tool"]}` → **{esc(a["destination"])}**: {esc(a["message"][:160])}', unsafe_allow_html=True)
-        if a.get("gate_note"):
-            st.caption(f"↳ {esc(a['gate_note'])}")
-
-    q = result["integrity"]["quarantined"]
-    if result["mode"] == "sentinel":
-        st.markdown(f"**Integrity layer** · {len(q)} span(s) quarantined")
-        for item in q:
-            where = "hidden from humans" if item["hidden"] else "visible text"
-            st.markdown(
-                f'<div class="quarantine"><b>{where}</b> · {esc(item["reason"])}<br><span style="opacity:0.75">“{esc(item["text"][:220])}”</span></div>',
-                unsafe_allow_html=True,
-            )
-
-    with st.expander("Timings and sources"):
-        st.json({"timings_s": result["timings"], "brief_tokens": result["brief_tokens"], "degraded": result.get("degraded", [])})
-        for i, src in result["sources"].items():
-            st.markdown(f"{i}. [{src['title']}]({src['url']})")
-
-
-if go:
-    urls = [u.strip() for u in watch.splitlines() if u.strip()]
-    modes = {"Side by side": ["naive", "sentinel"], "Sentinel only": ["sentinel"], "Naive only": ["naive"]}[layout]
-    with st.spinner(f"Running {' and '.join(modes)} on {company}…"):
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            futures = {m: pool.submit(run, company, m, urls, set(authorized)) for m in modes}
-            results = {}
-            for m, f in futures.items():
-                try:
-                    results[m] = f.result()
-                except Exception as e:
-                    results[m] = {"mode": m, "error": f"{type(e).__name__}: {e}"}
-    cols = st.columns(len(modes))
-    titles = {"naive": "😬 Naive agent", "sentinel": "🛡️ Sentinel"}
-    for col, m in zip(cols, modes):
-        with col:
-            render(results[m], titles[m])

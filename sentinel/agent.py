@@ -4,6 +4,7 @@ mode="naive" runs the same model and prompt without the integrity layer, so the
 side-by-side comparison is fair: the only difference is Sentinel."""
 
 import datetime
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Literal
@@ -66,7 +67,9 @@ def _load_page(url: str) -> dict:
     if url.startswith("fixture:"):
         name = url.removeprefix("fixture:")
         html = (ROOT / "docs" / name / "index.html").read_text()
-        return {"url": f"https://abh1sharma.github.io/sentinel-agent/{name}/", "status": "success", "html": html, "markdown": ""}
+        host = os.getenv("VERCEL_PROJECT_PRODUCTION_URL")
+        label = f"https://{host}/{name}" if host else f"http://localhost:8000/{name}"
+        return {"url": label, "status": "success", "html": html, "markdown": ""}
     return web.extract(url)
 
 

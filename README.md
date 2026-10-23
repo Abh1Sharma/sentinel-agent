@@ -73,7 +73,8 @@ Built live at **Production Agent Lab**, Oct 22, 2026.
 ```bash
 cp .env.example .env    # add your keys
 uv sync
-uv run streamlit run app.py
+uv run uvicorn app:app --reload     # web app (also what Vercel runs)
+uv sync --extra ui && uv run streamlit run streamlit_app.py   # optional Streamlit UI
 ```
 
 ## Try the attack

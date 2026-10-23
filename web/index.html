@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sentinel</title>
+<meta name="description" content="A competitive-intel and AI-SDR agent the web can't hijack. Built with Nimble, Nexla, Comet Opik and Claude.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡️</text></svg>">
+<style>
+:root {
+  --bg: #fafaf8; --panel: #ffffff; --ink: #1c1c1e; --muted: #6b6b70; --line: #e6e4df;
+  --accent: #3b5bdb; --ok: #1d7a3a; --ok-bg: #e3f5e8; --bad: #b42318; --bad-bg: #fde8e6;
+  --warn: #8a5300; --warn-bg: #fff3d9; --console: #111318; --console-ink: #d9dce3;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0f1012; --panel: #17181b; --ink: #ececee; --muted: #9a9aa2; --line: #2a2b30;
+    --accent: #8ea6ff; --ok: #6fd28f; --ok-bg: #133020; --bad: #ff8a80; --bad-bg: #3a1714;
+    --warn: #f3c46b; --warn-bg: #3a2c10; --console: #0a0b0d; --console-ink: #d9dce3; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 1080px; margin: 0 auto; padding: 32px 16px 80px; }
+h1 { font-size: clamp(32px, 6vw, 48px); margin: 0 0 6px; letter-spacing: -0.02em; }
+h2 { font-size: 22px; margin: 48px 0 6px; letter-spacing: -0.01em; }
+p.lede { font-size: 19px; color: var(--muted); margin: 0 0 14px; max-width: 760px; }
+.chips span { display: inline-block; border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; margin: 0 6px 6px 0; font-size: 13px; color: var(--muted); background: var(--panel); }
+a { color: var(--accent); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; }
+input[type=url], input[type=text] { flex: 1 1 320px; min-width: 0; padding: 11px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); font-size: 15px; }
+button { padding: 11px 16px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font-weight: 600; cursor: pointer; font-size: 14px; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button:disabled { opacity: 0.55; cursor: progress; }
+.hint { font-size: 13px; color: var(--muted); margin-top: 8px; }
+#console { margin-top: 14px; background: var(--console); color: var(--console-ink); border-radius: 10px; padding: 12px 14px; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; min-height: 120px; max-height: 420px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+#console .t { color: #6b7280; } .k-step { color: #67e8f9; } .k-search, .k-fetch { color: #93c5fd; } .k-guard { color: #d8b4fe; }
+.k-flag { color: #fcd34d; } .k-quarantine { color: #fca5a5; font-weight: 700; } .k-clear { color: #86efac; } .k-error { color: #f0abfc; font-weight: 700; }
+#console .ex { color: #9ca3af; display: block; margin: 2px 0 4px 54px; border-left: 2px solid #374151; padding-left: 8px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
+@media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } }
+.side h3 { margin: 0 0 8px; font-size: 16px; }
+.side ul { margin: 0 0 8px; padding-left: 18px; }
+.mail { background: var(--bg); border: 1px dashed var(--line); border-radius: 8px; padding: 10px 12px; margin: 8px 0; font-size: 15px; }
+.badge { display: inline-block; font-size: 12px; font-weight: 700; border-radius: 6px; padding: 1px 8px; margin-right: 6px; }
+.b-ok { background: var(--ok-bg); color: var(--ok); } .b-bad { background: var(--bad-bg); color: var(--bad); } .b-warn { background: var(--warn-bg); color: var(--warn); }
+.q { border-left: 4px solid var(--bad); background: var(--bad-bg); padding: 8px 12px; border-radius: 6px; margin: 8px 0; font-size: 14px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.stat b { display: block; font-size: 28px; letter-spacing: -0.02em; }
+.stat span { color: var(--muted); font-size: 14px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 9px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; font-size: 13px; }
+.scroll { overflow-x: auto; }
+.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+.steps div { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--panel); font-size: 14px; }
+.steps b { display: block; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.mermaid { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; overflow-x: auto; }
+footer { margin-top: 56px; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>🛡️ Sentinel</h1>
+  <p class="lede">A competitive-intel and AI-SDR agent the web can't hijack. It reads strangers' pages, quarantines hidden prompt injection and planted "facts", checks every source, and never acts without your approval.</p>
+  <div class="chips"><span>Nimble · live web + agents</span><span>Nexla · approval-gated tools</span><span>Comet Opik · traces + evals</span><span>Claude Opus 5.5</span><span><a href="https://github.com/Abh1Sharma/sentinel-agent">GitHub ↗</a></span></div>
+
+  <h2>Try it live: paste any URL</h2>
+  <p class="hint" style="margin-top:0">Nimble fetches the page, Sentinel scans it while you watch, then the same AI-SDR task goes to a naive agent and to Sentinel. Put a prompt injection in your own bio or blog and see what happens.</p>
+  <div class="card">
+    <div class="row">
+      <input id="url" type="url" placeholder="https://www.linkedin.com/in/your-handle/" autocomplete="off">
+      <button id="go" class="primary">Scan live</button>
+      <button id="trap">Run the trap page</button>
+    </div>
+    <div class="hint">Trap page: <a href="/quillstack" target="_blank">a fictional competitor site</a> that looks normal to a human but hides a fake $4.2B acquisition and a "post to Slack" order. Scans take 10–40s. Rate limited to 6 per 10 minutes.</div>
+    <div id="console" aria-live="polite"><span class="t">Waiting for a URL…</span></div>
+    <div id="report"></div>
+  </div>
+
+  <h2>Measured, not claimed</h2>
+  <div class="stats">
+    <div class="card stat"><b>6 / 6</b><span>attack pages caught</span></div>
+    <div class="card stat"><b>0 / 6</b><span>legitimate pages wrongly blocked (incl. an article <i>about</i> injection)</span></div>
+    <div class="card stat"><b>0 LLM calls</b><span>to clear a real LinkedIn page (229 paragraphs). Cheap rules first, Claude only on flags</span></div>
+    <div class="card stat"><b>Same model</b><span>on both sides: the naive agent put the fake acquisition in a prospect email; Sentinel didn't</span></div>
+  </div>
+
+  <h2>Lead Radar: a Nimble agent, then Sentinel checks every source</h2>
+  <p class="hint" style="margin-top:0">Built with Nimble's 5-step framework. Its last line, "check a source, every agent, every time," is the step Sentinel automates.</p>
+  <div class="steps">
+    <div><b>1 · Brief</b>US B2B companies that shipped web-reading AI agents in the last 30 days, with what counts and what doesn't</div>
+    <div><b>2 · Sources</b>First-party newsrooms and changelogs prioritized; listicles avoided as evidence</div>
+    <div><b>3 · Skill</b>Agent-launch signal analyst: a dated quote per row, never invent</div>
+    <div><b>4 · Output</b>Table: company · signal_date · evidence_url · evidence_quote · buyer_title</div>
+    <div><b>5 · Effort</b>Medium (~4 min) live; then Sentinel verifies the quote, the date and the page</div>
+  </div>
+  <div class="card scroll" style="margin-top:12px"><table id="leads"><thead><tr><th>Company</th><th>Signal</th><th>Evidence</th><th>Sentinel source check</th></tr></thead><tbody><tr><td colspan="4" class="hint">Loading…</td></tr></tbody></table></div>
+
+  <h2>How it works</h2>
+  <pre class="mermaid">
+flowchart LR
+    U([You]) -->|URL / company / ICP brief| P[Sentinel]
+    subgraph NIMBLE [Nimble: live web]
+      R[Lead Radar agent]
+      S[Search x5 parallel]
+      X[Extract: rendered HTML]
+    end
+    P --> R --> X
+    P --> S --> X
+    subgraph GUARD [Integrity layer: 3 checkpoints, 1 policy]
+      V[Visibility split: visible vs CSS-hidden]
+      H[Pattern rules: override, AI-addressed, exfil, zero-width, hidden claims]
+      C[Claude classifier: flagged spans only]
+      Q[(Quarantine)]
+      SC[Source check: quote on page, date in window]
+      AG[Action gate: allowlist + approval]
+    end
+    X --> V --> H -->|flagged| C --> Q
+    H -->|clean| B[Claude: briefing / outreach]
+    C -->|benign| B
+    X --> SC
+    B --> AG -->|approved| NX[Nexla MCP: requires-approval tools] --> CRM[(Slack / CRM)]
+    P -.traces, guardrail spans, cost.-> OP[(Comet Opik)]
+  </pre>
+
+  <footer>Built live at Production Agent Lab, Oct 22, 2026 · <a href="https://github.com/Abh1Sharma/sentinel-agent">source</a> · Quillstack and Helix Cloud are fictional.</footer>
+</main>
+
+<script type="module">
+import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs";
+const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+mermaid.initialize({ startOnLoad: true, theme: dark ? "dark" : "neutral", securityLevel: "strict" });
+</script>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const ICON = { step: "▸", search: "🔎", fetch: "🌐", guard: "🛡", flag: "⚠️", quarantine: "⛔", clear: "✅", error: "‼️" };
+
+function log(ev) {
+  const c = $("console");
+  const line = document.createElement("div");
+  line.innerHTML = `<span class="t">${String(ev.t ?? "").padStart(5)}s</span> <span class="k-${esc(ev.type)}">${ICON[ev.type] || "·"} ${esc(ev.msg)}</span>` +
+    (ev.excerpt ? `<span class="ex">[${ev.hidden ? "hidden from humans" : "visible"}] ${esc(ev.excerpt)}</span>` : "");
+  c.appendChild(line);
+  c.scrollTop = c.scrollHeight;
+}
+
+function side(title, r, cls) {
+  if (!r || r.error) return `<div class="card side"><h3>${title}</h3><p class="hint">${esc(r?.error || "no answer")}</p></div>`;
+  return `<div class="card side"><h3>${title}</h3>
+    <ul>${r.summary.map((s) => `<li>${esc(s)}</li>`).join("")}</ul>
+    <div class="mail">✉ ${esc(r.outreach_draft)}</div>
+    <ul>${r.actions_i_would_take.map((a) => `<li>→ ${esc(a)}</li>`).join("")}</ul></div>`;
+}
+
+function report(d) {
+  const q = d.quarantined || [];
+  let html = `<p style="margin:14px 0 6px"><span class="badge ${q.length ? "b-bad" : "b-ok"}">${q.length} quarantined</span>
+    <span class="hint">${d.hidden_spans} hidden span(s) on page · ${d.llm_checked} sent to the classifier · ${d.total_s}s</span></p>`;
+  html += q.map((x) => `<div class="q"><b>${x.hidden ? "Hidden from humans" : "Visible text"}</b>: ${esc(x.reason)}<br><span class="hint">“${esc(x.text.slice(0, 260))}”</span></div>`).join("");
+  if (d.naive) html += `<div class="grid2">${side("😬 Naive agent (raw page)", d.naive)}${side("🛡️ Sentinel (cleaned page)", d.sentinel)}</div>`;
+  $("report").innerHTML = html;
+}
+
+async function scan(url) {
+  $("go").disabled = $("trap").disabled = true;
+  $("console").innerHTML = "";
+  $("report").innerHTML = "";
+  try {
+    const res = await fetch("/api/scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); log({ type: "error", t: 0, msg: e.error || `HTTP ${res.status}` }); return; }
+    const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+        if (!line) continue;
+        const ev = JSON.parse(line);
+        if (ev.type === "ping") continue;
+        if (ev.type === "result") report(ev.data); else log(ev);
+      }
+    }
+  } catch (e) {
+    log({ type: "error", t: 0, msg: String(e) });
+  } finally {
+    $("go").disabled = $("trap").disabled = false;
+  }
+}
+
+$("go").onclick = () => { const u = $("url").value.trim(); if (u) scan(u); };
+$("url").addEventListener("keydown", (e) => { if (e.key === "Enter") $("go").click(); });
+$("trap").onclick = () => scan("fixture:quillstack");
+
+fetch("/api/radar").then((r) => r.json()).then((d) => {
+  $("leads").querySelector("tbody").innerHTML = d.rows.map((r) => `<tr>
+    <td><b>${esc(r.company)}</b><br><span class="hint">${esc(r.website)} · buyer: ${esc(r.buyer_title)}</span></td>
+    <td>${esc(r.signal_date)}<br><span class="hint">${esc(r.what_they_shipped)}</span></td>
+    <td><a href="${esc(r.evidence_url)}" target="_blank" rel="noopener">${esc(new URL(r.evidence_url).hostname)}</a><br><span class="hint">“${esc(r.evidence_quote.slice(0, 140))}…”</span></td>
+    <td><span class="badge b-ok">quote on page</span><br><span class="badge b-ok">date in window</span><br><span class="badge b-ok">0 injections</span><br><span class="badge b-warn">CRM write needs approval</span></td></tr>`).join("");
+}).catch(() => {});
+</script>
+</body>
+</html>

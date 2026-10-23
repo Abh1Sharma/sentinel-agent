@@ -1,0 +1,49 @@
+{
+ "agent": "sentinel-lead-radar",
+ "effort": "medium",
+ "seconds": 239,
+ "rows": [
+  {
+   "company": "Floqer",
+   "website": "floqer.com",
+   "buyer_title": "VP Engineering",
+   "signal_date": "2026-10-14",
+   "evidence_url": "https://techcrunch.com/2026/10/14/floqers-ai-agents-help-b2b-revenue-teams-research-customers/",
+   "evidence_quote": "Floqer aims to automate much of that research. Users can describe what they are looking for, and its AI agents search across different sources to build lists of relevant companies and contacts.",
+   "what_they_shipped": "Autonomous customer knowledge platform whose fleet of AI agents researches companies and people across the open web (Google, LinkedIn, company sites, job boards, 100+ data sources) and continuously monitors the web for changes to keep B2B revenue teams' customer records current.",
+   "source_check": {
+    "quote_on_page": true,
+    "date_in_window": true,
+    "injection_spans": 0
+   }
+  },
+  {
+   "company": "Sigma360",
+   "website": "sigma360.com",
+   "buyer_title": "Head of AI",
+   "signal_date": "2026-10-22",
+   "evidence_url": "https://www.prnewswire.com/news-releases/sigma360-launches-ai-powered-enhanced-due-diligence-agent-to-synthesize-compliance-data-and-cut-investigation-time-by-87-percent-302916908.html",
+   "evidence_quote": "The Sigma360 EDD Agent automates the investigative steps that drain analyst time: collecting internal and external data, summarizing findings across structured modules, identifying risk factors and mitigants, recommending next steps, and generating a fully cited narrative ready for regulatory review. The analyst remains the decision-maker throughout, and every risk rating and action is documented, traceable, and defensible at examination.",
+   "what_they_shipped": "Enhanced Due Diligence (EDD) Agent for financial-crime compliance that gathers internal and external data on investigation subjects, synthesizes cited findings and risk narratives, and is available now within the Sigma360 risk platform.",
+   "source_check": {
+    "quote_on_page": true,
+    "date_in_window": true,
+    "injection_spans": 0
+   }
+  },
+  {
+   "company": "Scientist.com",
+   "website": "scientist.com",
+   "buyer_title": "CTO",
+   "signal_date": "2026-10-22",
+   "evidence_url": "https://www.businesswire.com/news/home/20261022796429/en/Scientist.com-Launches-Agentic-AI-Platform-for-Research-Procurement",
+   "evidence_quote": "*   Analyze uploaded protocols to identify required laboratory services and capabilities",
+   "what_they_shipped": "Agentic AI platform for research procurement whose agents read customers' uploaded experimental protocols, identify required lab services, match qualified suppliers, and manage purchasing through enterprise procurement workflows, including via MCP for external AI assistants.",
+   "source_check": {
+    "quote_on_page": true,
+    "date_in_window": true,
+    "injection_spans": 0
+   }
+  }
+ ]
+}
