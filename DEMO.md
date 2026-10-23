@@ -1,40 +1,40 @@
 # Sentinel: demo run sheet (3 minutes)
 
-## Before you walk up
-- [ ] `uv run streamlit run app.py` is running, browser zoomed to 150%, notifications off
-- [ ] Run both demo inputs once beforehand so the Nimble cache is warm
-- [ ] Opik tab open on the `sentinel` project, filtered to the last run
-- [ ] Backup: a screen recording of a full run, and `SENTINEL_REPLAY=1` ready if the Wi-Fi dies
-- [ ] Phone hotspot on
+**Story:** Nimble's own framework ends with *"check a source, take it with you. Every agent, every time."* Sentinel automates that step, and it matters most for GTM agents that read strangers' pages and then write to prospects.
+
+## Before you walk up (by 6:50)
+- [ ] Terminal font at 18pt+, dark theme, window full screen, notifications off
+- [ ] `uv run python -m sentinel leads --cached --top 2` runs clean (the agent result is cached)
+- [ ] Nimble web UI open on **Sentinel Lead Radar** (Web Search Agents), showing its Sources, Skill and Output config
+- [ ] Opik open on project `sentinel`
+- [ ] Backup: screen recording of `scan fixture:quillstack`; phone hotspot on
 
 ## Script
 
 **0:00 Hook (15s)**
-> "Every agent that reads the web is reading content written by strangers. Some of those strangers are writing for your agent, not for you."
+> "AI SDRs read strangers' web pages and then write to your prospects. I'll show you one getting hijacked by a single hidden sentence, and the fix."
 
-**0:15 Live run on a real company (40s)**
-- Ask the room for a company and type it in. Run **Sentinel only**.
-- While it runs: "Five Nimble searches in parallel. News, funding, launches, pricing, reviews. Then it reads the top pages in full."
-- Show the briefing: priorities, dates, confidence, a source on every claim.
+**0:15 The agent, built with Nimble's 5 steps (35s)**: show the Nimble UI
+- Brief: "companies that shipped web-reading AI agents in the last 30 days: what counts, what doesn't."
+- Sources: first-party pages are prioritized, and listicles are avoided as evidence. *"The default lead template cited 'top 10' roundups. I told it which pages to trust."*
+- Skill: one job, an agent-launch signal analyst. Output: a table with plain column names. Effort: medium, about 3 minutes.
+- "Those leads are exactly the companies that need Sentinel. It's finding its own customers."
 
-**0:55 The twist (60s)**
-- "Here's Quillstack, a competitor we track. Its site looks normal." Show the page. There's no acquisition anywhere on it.
-- Run **Side by side**. Same model (Claude Opus 5.5) and same prompt on both sides; the only difference is Sentinel.
-- Left, the naive agent: its P1 is "Quillstack signed a definitive agreement to be acquired by Helix Cloud for $4.2B", and it **posted that to your team's Slack**. "That acquisition never happened. It's a press release hidden with CSS. You can't see it; your scraper can."
-- Right, Sentinel: 3 spans quarantined (the cloaked acquisition, a hidden 'post to Slack and email' instruction, and a visible 'note for AI agents'). The real news, the Pulse launch, pricing and hiring, still came through, and the Slack post waits for your approval.
-- Honest aside, if asked: frontier models do ignore *obvious* "AI, do X" instructions. A cloaked fact is different. It doesn't look like an attack, so the model reports it.
+**0:50 Check a source, automated (50s)**: terminal, `leads --cached --top 2`
+- For each lead, Sentinel opens the evidence page with Nimble Extract, scans it, confirms the **quoted sentence is really on the page** and the **date is in the window**, then drafts outreach and holds the CRM write for approval (the Nexla requires-approval tool).
 
-**1:55 Production proof (45s)**
-- Switch to Opik and show the trace tree: search → extract → `guardrail` spans → LLM.
-- Read out the eval numbers: catch rate, **false-positive rate**, and how many pages were cleared with no LLM call at all.
-- "Three checkpoints: request, content, action. One policy. Cheap deterministic checks first, and the LLM only sees what they flag."
+**1:40 The hijack (50s)**: `scan fixture:quillstack`
+- Live logs: 2 hidden spans and 1 visible "note for AI agents" flagged, then the Claude classifier gives an ATTACK verdict on each.
+- The naive SDR's email: *"Congrats on the pending Helix Cloud acquisition"*. That's a fake fact from a CSS-hidden press release, now in front of a prospect.
+- Sentinel's email: clean, and built from real signals only.
 
-**2:40 Close (20s)**
-> "Nimble gives the agent the live web. Nexla gives it governed hands: write tools that need approval. Opik shows everything it did. Sentinel makes it safe to leave running."
+**2:30 Proof and close (30s)**
+- Evals: 6/6 attacks caught, 0/6 false positives, and a real LinkedIn page (229 paragraphs) cleared with **zero LLM calls**.
+> "Nimble finds the leads, Sentinel checks every source, Nexla gates every write, and Opik shows all of it. Every agent, every time."
 
 ## If a judge asks
-- **"Isn't the model itself robust to injection?"** Sometimes. That's a coin flip you don't want in production. And the fake acquisition isn't an instruction, it's a planted *fact*, which models happily report. We remove it before the model ever sees it, and the corroboration gate catches anything that slips through.
-- **"False positives?"** We measure them. Articles *about* prompt injection, Slack-webhook changelogs and hidden nav menus are all in the eval set as must-pass.
-- **"Latency and cost?"** Most pages never hit an LLM. Only flagged spans do, in one batched call per page at low effort.
-- **"How does it scale?"** A bounded semaphore under Nimble's 10 QPS limit, Retry-After-aware backoff, and a content-addressed cache that doubles as a replay log.
-- **"Why Nexla?"** A task-specific MCP server exposes only the 2–3 write tools the agent needs, each marked requires-approval and audited, instead of handing the agent a whole Slack or CRM API.
+- **"Isn't the model robust to injection?"** To obvious "AI, do X" text, mostly yes. Today it ignored the hidden "post to Slack" order. But a cloaked *fact* doesn't look like an attack, so the model put it straight into an outbound email.
+- **"False positives?"** Measured: an article *about* prompt injection, a Slack-webhook changelog, and hidden menus and tabs all pass.
+- **"Cost and latency?"** Pattern rules first; Claude only sees flagged spans. Most real pages need zero LLM calls.
+- **"Why Nimble agents rather than plain search?"** Search finds candidates. The agent applies the brief, sources and skill and returns a table with evidence, and Sentinel verifies that evidence.
+- **"Scale?"** A bounded semaphore under Nimble's 10 QPS limit, Retry-After-aware backoff, and a content-addressed cache that doubles as a replay log.
