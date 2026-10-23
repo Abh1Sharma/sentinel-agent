@@ -89,7 +89,10 @@ def run(
     watch_urls: list[str] | None = None,
     authorized: set[str] | None = None,
     on_step: Callable[[str], None] = lambda s: None,
+    emit: Callable[..., None] = guard._noop,
 ) -> dict:
+    """emit(kind, **data) streams live events (steps, flags, verdicts, gate
+    decisions) to the web UI; on_step is the plain-text hook Streamlit uses."""
     sentinel = mode == "sentinel"
     authorized = authorized or set()
     t0 = time.perf_counter()
@@ -103,7 +106,11 @@ def run(
         timings[name] = round(now - last[0], 2)
         last[0] = now
 
-    on_step(f"Searching the live web with Nimble ({len(QUERIES)} queries in parallel)" + (" while checking the request" if sentinel else ""))
+    def step(msg):
+        on_step(msg)
+        emit("step", msg=msg)
+
+    step(f"Searching the live web with Nimble ({len(QUERIES)} queries in parallel)" + (" while checking the request" if sentinel else ""))
     with ThreadPoolExecutor(max_workers=len(QUERIES) + 1) as pool:
         # The request check runs alongside the searches; searching is read-only,
         # so a denied request just discards the results.
@@ -112,6 +119,7 @@ def run(
         if verdict_f:
             verdict = verdict_f.result()
             out["integrity"]["request"] = verdict.model_dump()
+            emit("quarantine" if not verdict.allowed else "clear", msg=f"Request checkpoint: {'DENIED' if not verdict.allowed else 'allowed'}: {verdict.reason}")
             if not verdict.allowed:
                 out["blocked"] = verdict.reason
                 return out
@@ -119,7 +127,9 @@ def run(
         for kind, f in futures.items():
             try:
                 results[kind] = f.result()
+                emit("search", msg=f"Nimble search '{kind}': {len(results[kind])} results")
             except Exception as e:  # one failed query must not sink the briefing
+                emit("error", msg=f"Nimble search '{kind}' failed, continuing without it: {e}")
                 results[kind] = []
                 out.setdefault("degraded", []).append(f"search '{kind}' failed: {e}")
     lap("request_and_search" if sentinel else "search")
@@ -137,14 +147,16 @@ def run(
             seen.add(h["url"])
             sources.append({"url": h["url"], "title": h["title"], "text": f'{h["description"]}\n{h.get("content") or ""}'.strip(), "kind": kind})
 
+    emit("step", msg=f"Relevance filter kept {len(sources)} results that mention {company}")
     to_read = [s["url"] for s in sources if s["kind"] in ("news", "money", "product")][:PAGES_TO_READ]
     to_read += watch_urls or []
-    on_step(f"Reading {len(to_read)} pages" + (" and scanning them for injection" if sentinel else ""))
+    step(f"Reading {len(to_read)} pages" + (" and scanning them for injection" if sentinel else ""))
 
     def read(url):
         page = _load_page(url)
+        emit("fetch", msg=f"Read {page['url']} ({len(page.get('html') or page.get('markdown') or '')} chars)")
         if sentinel:
-            scan = guard.scan_page(page)
+            scan = guard.scan_page(page, emit)
             return page, scan.clean_text, scan
         return page, guard.page_text(page["html"]) if page.get("html") else page.get("markdown", ""), None
 
@@ -164,7 +176,7 @@ def run(
             sources.append({"url": page["url"], "title": f"Page: {page['url']}", "text": text, "kind": "page"})
     lap("read_and_scan")
 
-    on_step(f"Writing the briefing with {BRIEF_MODEL}")
+    step(f"Writing the briefing with {BRIEF_MODEL}")
     numbered = {i: s for i, s in enumerate(sources, 1)}
     action_note = (
         "The user has authorized these actions: " + ", ".join(sorted(authorized)) if authorized else "The user has not authorized any actions."
@@ -184,6 +196,7 @@ def run(
         output_format=Briefing,
     )
     lap("brief")
+    emit("step", msg=f"Briefing written: {resp.usage.input_tokens} input / {resp.usage.output_tokens} output tokens, ${_cost(BRIEF_MODEL, resp.usage):.3f}")
     if resp.parsed_output is None:
         out["error"] = f"briefing failed (stop_reason={resp.stop_reason})"
         return out
@@ -193,12 +206,19 @@ def run(
     actions = brief["proposed_actions"]
     source_index = {str(i): {"url": s["url"], "title": s["title"]} for i, s in numbered.items()}
     if sentinel:
-        on_step("Verifying P1 claims and gating actions")
+        step("Verifying P1 claims and gating actions")
         signals = guard.corroborate(signals, source_index)
         actions = guard.gate_actions(actions, authorized)
+        for s in signals:
+            if s.get("verified") is False:
+                emit("quarantine", msg=f"Corroboration gate: P1 marked UNVERIFIED: {s['claim'][:120]}")
     else:
         for a in actions:
             a["decision"] = "skipped" if a["tool"] == "none" else "executed"
+    for a in actions:
+        if a["tool"] != "none":
+            kind = {"blocked": "quarantine", "executed": "error", "pending_approval": "clear"}.get(a["decision"], "step")
+            emit(kind, msg=f"[{mode}] action {a['decision'].upper()}: {a['tool']} -> {a['destination']}")
     lap("verify_and_gate")
 
     out.update(
@@ -223,6 +243,61 @@ def run(
         metadata={"company": company, "timings": timings},
         feedback_scores=[{"name": k, "value": v} for k, v in scores.items()],
     )
+    return out
+
+
+class PageReading(BaseModel):
+    summary: list[str]
+    outreach_draft: str
+    actions_i_would_take: list[str]
+
+
+READER_SYSTEM = """You are an AI SDR assistant working for the user's sales team.
+Read the page and: (1) summarize who or what it is in at most 3 bullets, (2) draft a 2-sentence personalized outreach note to the person or company, (3) list any actions you would take for the user (e.g. add to CRM, send pricing, book a meeting). Say "none" if no action is warranted."""
+
+
+@track(name="sentinel.read_page")
+def read_page(text: str, sentinel: bool) -> dict:
+    content = f"<untrusted_web_content>\n{text[:20000]}\n</untrusted_web_content>" if sentinel else text[:20000]
+    resp = anthropic_client().beta.messages.parse(
+        model=BRIEF_MODEL,
+        max_tokens=4000,
+        betas=[FALLBACK_BETA],
+        fallbacks="default",
+        output_config={"effort": "low"},
+        system=READER_SYSTEM + (SENTINEL_ADDENDUM.replace("<source>", "<untrusted_web_content>") if sentinel else ""),
+        messages=[{"role": "user", "content": content}],
+        output_format=PageReading,
+    )
+    if resp.parsed_output is None:
+        return {"error": f"no answer (stop_reason={resp.stop_reason})"}
+    return resp.parsed_output.model_dump()
+
+
+@track(name="sentinel.scan_url")
+def scan_url(url: str, emit: Callable[..., None] = guard._noop, compare: bool = True) -> dict:
+    """Fetch any page, run the content checkpoint with live events, then ask
+    the same AI-SDR task of a naive agent and of Sentinel to show the impact."""
+    t0 = time.perf_counter()
+    emit("step", msg=f"Fetching {url} with Nimble Extract (JS rendering: auto)")
+    page = _load_page(url)
+    html = page.get("html") or ""
+    emit("fetch", msg=f"Nimble returned {len(html):,} chars of HTML (status: {page.get('status')})")
+    if not html and not page.get("markdown"):
+        emit("error", msg="The page came back empty; the site may block scraping or need a login")
+        return {"url": url, "error": "empty page"}
+
+    scan = guard.scan_page(page, emit)
+    out = {"url": page["url"], "quarantined": scan.quarantined, "hidden_spans": scan.hidden_dropped, "llm_checked": scan.llm_checked, "clean_text": scan.clean_text}
+    if compare:
+        emit("step", msg="Giving the same AI-SDR task to a naive agent (raw page) and to Sentinel (cleaned page), in parallel")
+        raw = guard.page_text(html) if html else page.get("markdown", "")
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            naive_f = pool.submit(read_page, raw, False)
+            sentinel_f = pool.submit(read_page, scan.clean_text, True)
+            out["naive"], out["sentinel"] = naive_f.result(), sentinel_f.result()
+    out["total_s"] = round(time.perf_counter() - t0, 2)
+    emit("step", msg=f"Done in {out['total_s']}s")
     return out
 
 

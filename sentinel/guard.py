@@ -172,8 +172,12 @@ class PageScan:
     llm_checked: int = 0
 
 
-@track(name="guard.scan_page", type="guardrail")
-def scan_page(page: dict) -> PageScan:
+def _noop(kind: str, **data) -> None:
+    pass
+
+
+@track(name="guard.scan_page", type="guardrail", ignore_arguments=["emit"])
+def scan_page(page: dict, emit=_noop) -> PageScan:
     url = page["url"]
     if page.get("html"):
         visible, hidden = split_visibility(page["html"])
@@ -181,6 +185,7 @@ def scan_page(page: dict) -> PageScan:
         visible, hidden = page.get("markdown", ""), []
 
     chunks = _chunks(visible)
+    emit("guard", msg=f"Split page into {len(chunks)} visible paragraphs and {len(hidden)} hidden spans", url=url)
     suspects = []
     for i, c in enumerate(chunks):
         if flags := needs_review(c, hidden=False):
@@ -188,8 +193,19 @@ def scan_page(page: dict) -> PageScan:
     for j, h in enumerate(hidden):
         if flags := needs_review(h, hidden=True):
             suspects.append({"id": 10_000 + j, "text": h, "hidden": True, "flags": flags})
+    for s in suspects:
+        emit("flag", msg=f"Pattern rules flagged a {'HIDDEN' if s['hidden'] else 'visible'} span: {', '.join(s['flags'])}", excerpt=s["text"][:240], hidden=s["hidden"], url=url)
+    if suspects:
+        emit("guard", msg=f"Sending {len(suspects)} flagged span(s) to the Claude classifier", url=url)
+    else:
+        emit("clear", msg="No span needed review: page cleared with zero LLM calls", url=url)
 
     verdicts = {v.span_id: v for v in classify_spans(url, suspects)}
+    for s in suspects:
+        v = verdicts.get(s["id"])
+        if v:
+            emit("quarantine" if v.verdict == "attack" else "clear", msg=f"{'ATTACK, quarantined' if v.verdict == 'attack' else 'Benign, kept'}: {v.reason}", excerpt=s["text"][:240], hidden=s["hidden"], url=url)
+
     quarantined, kept = [], []
     for i, c in enumerate(chunks):
         v = verdicts.get(i)
